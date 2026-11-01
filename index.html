@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motif: how are these two tracks connected?</title>
+<style>
+  :root { --bg: #121212; --card: #1e1e1e; --card2: #262626; --text: #f2f2f2; --muted: #a7a7a7; --line: #333;
+          --green: #1ed760; --violet: #a78bfa; --amber: #fbbf24; --red: #f87171; --blue: #60a5fa; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 64rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
+  h1 { font-size: 1.9rem; margin: 0; letter-spacing: -.02em; }
+  h2 { font-size: 1.15rem; margin: 2.5rem 0 .25rem; }
+  h3 { font-size: .95rem; margin: 0 0 .15rem; }
+  p { margin: .35rem 0; }
+  .muted { color: var(--muted); }
+  .small { font-size: .85rem; }
+  a { color: var(--green); }
+
+  /* Pickers */
+  form { display: grid; grid-template-columns: 1fr auto 1fr; gap: .75rem; align-items: stretch; margin-top: 1.5rem; }
+  .drop { position: relative; display: flex; flex-direction: column; gap: .2rem; padding: 1rem 1.1rem; border-radius: 12px;
+          background: var(--card); border: 1px dashed #444; cursor: pointer; min-height: 5.5rem; }
+  .drop:hover, .drop.over { border-color: var(--green); }
+  .drop:focus-within { outline: 2px solid var(--green); outline-offset: 2px; }
+  .drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .drop .role { font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .drop .file { font-weight: 600; overflow-wrap: anywhere; }
+  .vs { align-self: center; color: var(--muted); font-size: .85rem; }
+  .actions { grid-column: 1 / -1; display: flex; gap: 1rem; align-items: center; }
+  button { font: inherit; font-weight: 700; padding: .65rem 1.8rem; border: 0; border-radius: 999px; background: var(--green); color: #000; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: progress; }
+  #status:empty { display: none; }
+  .error { color: var(--red); }
+
+  /* Connection card */
+  .connection { display: grid; grid-template-columns: 1fr minmax(11rem, 15rem) 1fr; gap: 1rem; align-items: center; margin-top: 2rem; }
+  .track { background: var(--card); border-radius: 12px; padding: 1rem; min-width: 0; }
+  .track .role { font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .track .name { font-size: 1.1rem; font-weight: 700; overflow-wrap: anywhere; margin: .1rem 0 .5rem; }
+  .chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .chip { background: var(--card2); border-radius: 999px; padding: .15rem .6rem; font-size: .82rem; }
+  .chip b { font-weight: 600; }
+  .badge { text-align: center; position: relative; }
+  .badge::before { content: ""; position: absolute; left: -1rem; right: -1rem; top: 50%; border-top: 2px dashed var(--line); z-index: 0; }
+  .badge .pill { position: relative; z-index: 1; display: inline-block; padding: .55rem 1rem; border-radius: 999px; font-weight: 700;
+                 background: var(--card2); border: 2px solid var(--line); }
+  .badge .detail { position: relative; z-index: 1; display: block; margin-top: .4rem; font-size: .8rem; color: var(--muted); background: var(--bg); }
+  .badge.shared .pill { border-color: var(--green); color: var(--green); }
+  .badge.shared::before { border-top: 2px solid var(--green); }
+  .badge.musical .pill { border-color: var(--violet); color: var(--violet); }
+  .badge.musical::before { border-top: 2px solid var(--violet); }
+  .badge.same .pill { border-color: var(--blue); color: var(--blue); }
+  .statement { margin: 1rem 0 0; padding: .9rem 1.1rem; background: var(--card); border-radius: 12px; border-left: 4px solid var(--line); }
+  .statement.shared { border-left-color: var(--green); }
+  .statement.musical { border-left-color: var(--violet); }
+
+  /* Timelines */
+  .timeline { background: var(--card); border-radius: 12px; padding: .8rem 1rem; }
+  .timeline .head { display: flex; justify-content: space-between; gap: 1rem; font-size: .85rem; color: var(--muted); }
+  .timeline .head b { color: var(--text); }
+  .lane { display: grid; grid-template-columns: 5.5rem 1fr; align-items: center; gap: .5rem; margin-top: .35rem; }
+  .lane span { font-size: .75rem; color: var(--muted); text-align: right; }
+  .lane canvas { width: 100%; display: block; border-radius: 4px; background: #000; }
+  .links { display: grid; grid-template-columns: 5.5rem 1fr; gap: .5rem; padding: 0 1rem; }
+  .links svg { width: 100%; height: 64px; display: block; }
+  .legend { display: flex; flex-wrap: wrap; gap: 1rem; font-size: .8rem; color: var(--muted); margin-top: .6rem; }
+  .legend i { display: inline-block; width: .8rem; height: .8rem; border-radius: 2px; vertical-align: -1px; margin-right: .3rem; }
+
+  /* Evidence */
+  .signals { list-style: none; padding: 0; margin: .75rem 0 0; display: grid; gap: .5rem; }
+  .signals li { background: var(--card); border-radius: 10px; padding: .65rem .9rem; border-left: 4px solid var(--amber); }
+  .signals li.ok { border-left-color: var(--line); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr)); gap: 1rem; margin-top: 1rem; }
+  figure { margin: 0; background: var(--card); border-radius: 12px; padding: .9rem 1rem 1rem; min-width: 0; }
+  figure .tag { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--amber); }
+  figure canvas { width: 100%; display: block; margin-top: .4rem; }
+  figcaption { font-size: .83rem; color: var(--muted); margin-top: .4rem; }
+  details { margin-top: 2.5rem; }
+  summary { cursor: pointer; color: var(--muted); }
+  pre { background: var(--card); padding: .75rem; overflow: auto; max-height: 30rem; font-size: 12px; border-radius: 8px; }
+  footer { margin-top: 3rem; font-size: .8rem; color: var(--muted); }
+
+  @media (max-width: 720px) {
+    form { grid-template-columns: 1fr; }
+    .vs { display: none; }
+    .connection { grid-template-columns: 1fr; }
+    .badge::before { display: none; }
+    .lane, .links { grid-template-columns: 1fr; }
+    .lane span { text-align: left; }
+    .links > span { display: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Motif</h1>
+  <p class="muted">How are these two tracks connected? Motif looks for <b>shared recorded audio</b> (a sample,
+  a re-release) and for <b>musical resemblance</b> (a cover or interpolation). It runs entirely in this browser,
+  using a C engine compiled to WebAssembly, so your files are never uploaded.</p>
+</header>
+
+<form id="form">
+  <label class="drop" id="drop-query">
+    <span class="role">Track A (query)</span>
+    <span class="file" id="name-query">Choose or drop an audio file</span>
+    <span class="muted small">The track that may contain a sample or cover</span>
+    <input type="file" id="query" accept="audio/*" required>
+  </label>
+  <span class="vs" aria-hidden="true">vs</span>
+  <label class="drop" id="drop-reference">
+    <span class="role">Track B (reference)</span>
+    <span class="file" id="name-reference">Choose or drop an audio file</span>
+    <span class="muted small">The suspected original</span>
+    <input type="file" id="reference" accept="audio/*" required>
+  </label>
+  <div class="actions">
+    <button type="submit" id="run">Compare</button>
+    <span id="status" role="status" aria-live="polite" class="muted"></span>
+  </div>
+</form>
+
+<section id="result" hidden>
+  <div class="connection">
+    <div class="track" id="card-query"></div>
+    <div class="badge" id="badge"></div>
+    <div class="track" id="card-reference"></div>
+  </div>
+  <p class="statement" id="statement"></p>
+
+  <h2>Where they connect</h2>
+  <p class="muted small">Each track's waveform, spectrogram (pitch up, time across) and chroma (the 12 pitch classes, C at the bottom).
+  Linked bands show the passages Motif matched.</p>
+  <div class="timeline" id="tl-query"></div>
+  <div class="links"><span></span><svg id="links" viewBox="0 0 1000 64" preserveAspectRatio="none" role="img"></svg></div>
+  <div class="timeline" id="tl-reference"></div>
+  <div class="legend">
+    <span><i style="background: var(--green)"></i>Shared recorded audio</span>
+    <span><i style="background: var(--violet)"></i>Strongest musical (chroma) match</span>
+  </div>
+
+  <div id="evidence">
+    <h2>Why this result</h2>
+    <p class="muted small">The detectors use fixed thresholds (dashed red lines). Short, pitch-shifted or heavily processed
+    samples and very dense mixes can fall below them, so a "no connection" result is not proof of absence. These graphs
+    show how close each case came. Signals below are hints for a listener, not findings.</p>
+    <ul class="signals" id="signals"></ul>
+    <div class="grid">
+      <figure>
+        <h3>Matching fingerprints</h3>
+        <canvas id="g-dots" role="img" aria-label="Scatter plot of matching fingerprint hashes"></canvas>
+        <figcaption>Each dot is a fingerprint hash found in both tracks. Shared audio forms a straight diagonal run
+        (highlighted); scattered dots are chance matches.</figcaption>
+      </figure>
+      <figure>
+        <h3>Offset agreement</h3>
+        <canvas id="g-offsets" role="img" aria-label="Histogram of time offsets between matching hashes"></canvas>
+        <figcaption>How many matches agree on each time offset (reference time minus query time). Shared audio needs
+        one spike of at least 40 aligned hashes.</figcaption>
+      </figure>
+      <figure>
+        <span class="tag">Short samples</span>
+        <h3>Aligned hashes along the query</h3>
+        <canvas id="g-short" role="img" aria-label="Aligned hashes per second of the query with running total"></canvas>
+        <figcaption>Bars: hashes per second that agree with the best offset. Line: running total, reset after 2 s with nothing
+        aligned. A run must reach 40 to count, so a very short or sparse sample may never get there.</figcaption>
+      </figure>
+      <figure>
+        <span class="tag">Pitch-shifted samples</span>
+        <h3>Pitch and speed sweep</h3>
+        <canvas id="g-sweep" role="img" aria-label="Aligned hashes when the query is shifted by each number of semitones"></canvas>
+        <figcaption>Best aligned count after shifting the query's fingerprints by each number of semitones, pitch only or
+        pitch with speed (vinyl-style). Motif's detector only uses the 0 column; a tall bar elsewhere suggests a
+        pitch-shifted sample.</figcaption>
+      </figure>
+      <figure>
+        <span class="tag">Heavily processed samples</span>
+        <h3>Share of query fingerprints matched</h3>
+        <canvas id="g-processed" role="img" aria-label="Percentage of query hashes matched per second"></canvas>
+        <figcaption>Per second: the share of the query's hashes found anywhere in the reference (bars), and the share on
+        the best offset (line). Filtering, distortion or time-stretching lower both.</figcaption>
+      </figure>
+      <figure>
+        <span class="tag">Dense mixes</span>
+        <h3>Spectral peaks per second</h3>
+        <canvas id="g-dense" role="img" aria-label="Spectral peaks found per second in each track against the cap"></canvas>
+        <figcaption>Motif keeps at most 50 peaks per second. Above the line, quieter layers (such as a sample buried under
+        drums and vocals) are dropped before fingerprinting.</figcaption>
+      </figure>
+      <figure>
+        <h3>Melodic match by transposition</h3>
+        <canvas id="g-transpose" role="img" aria-label="Best chroma window similarity for each transposition"></canvas>
+        <figcaption>Best 8-second chroma similarity with the query transposed by each number of semitones. Musical
+        resemblance needs at least 0.8 for 3 or more consecutive windows.</figcaption>
+      </figure>
+      <figure>
+        <h3>Melodic match by tempo</h3>
+        <canvas id="g-tempo" role="img" aria-label="Best chroma window similarity for each tempo ratio"></canvas>
+        <figcaption>The same similarity for each tempo ratio Motif tries. A cover played faster or slower peaks away from 1.0.</figcaption>
+      </figure>
+      <figure>
+        <h3>Pitch-class profile</h3>
+        <canvas id="g-profile" role="img" aria-label="Average pitch-class profile of both tracks"></canvas>
+        <figcaption>How much of each pitch class each track uses overall, the basis for the key estimate. Covers in a
+        different key show the same shape shifted sideways.</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <details>
+    <summary>Full report (JSON)</summary>
+    <pre id="output"></pre>
+  </details>
+</section>
+
+<footer>Visuals other than the evidence graphs are computed in JavaScript for display only. Which audio formats open
+depends on your browser (WAV, MP3 and FLAC are safest).</footer>
+</main>
+
+<script type="module">
+import { compare, SAMPLE_RATE } from "./motif.js";
+import { PITCHES, analyse, spectrogramImage, chromaImage, pitchProfile } from "./viz.js";
+import * as chart from "./charts.js";
+
+const $ = (id) => document.getElementById(id);
+const GREEN = "#1ed760", VIOLET = "#a78bfa", BLUE = "#60a5fa", TEAL = "#2dd4bf", GREY = "#6b7280", AMBER = "#fbbf24";
+
+async function sha256(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Decode, average the channels (as Motif's FFmpeg path does), then resample to 22050 Hz.
+async function decode(file) {
+  const bytes = await file.arrayBuffer();
+  const digest = await sha256(bytes);
+  const ctx = new AudioContext();
+  let decoded;
+  try {
+    decoded = await ctx.decodeAudioData(bytes.slice(0));
+  } catch (err) {
+    throw new Error(`${file.name}: the browser could not decode this file (${err.message || err})`);
+  } finally {
+    ctx.close();
+  }
+  const mono = new Float32Array(decoded.length);
+  for (let c = 0; c < decoded.numberOfChannels; c++) {
+    const ch = decoded.getChannelData(c);
+    for (let i = 0; i < ch.length; i++) mono[i] += ch[i] / decoded.numberOfChannels;
+  }
+  const length = Math.max(1, Math.round(decoded.duration * SAMPLE_RATE));
+  const offline = new OfflineAudioContext(1, length, SAMPLE_RATE);
+  const buffer = offline.createBuffer(1, mono.length, decoded.sampleRate);
+  buffer.copyToChannel(mono, 0);
+  const source = offline.createBufferSource();
+  source.buffer = buffer;
+  source.connect(offline.destination);
+  source.start();
+  const rendered = await offline.startRendering();
+  return { samples: rendered.getChannelData(0), name: file.name, sha256: digest };
+}
+
+// ---- pickers ----
+for (const role of ["query", "reference"]) {
+  const input = $(role), zone = $(`drop-${role}`);
+  const show = () => { $(`name-${role}`).textContent = input.files[0]?.name || "Choose or drop an audio file"; };
+  input.addEventListener("change", show);
+  zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("over"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    zone.classList.remove("over");
+    if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; show(); }
+  });
+}
+
+// ---- helpers ----
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const clock = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`;
+const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `\u2212${-n}` : "0");
+const semis = (n) => `${signed(n)} semitone${Math.abs(n) === 1 ? "" : "s"}`;
+
+function trackCard(role, t) {
+  const chips = [`<span class="chip">${t.duration_seconds != null ? clock(t.duration_seconds) : "?"}</span>`];
+  if (t.key?.key) chips.push(`<span class="chip">Key <b>${esc(t.key.key)}</b> <span class="muted">(${t.key.correlation.toFixed(2)})</span></span>`);
+  else chips.push(`<span class="chip muted">Key unclear</span>`);
+  if (t.tempo?.bpm) chips.push(`<span class="chip">Tempo <b>${t.tempo.bpm.toFixed(0)}</b> BPM</span>`);
+  else chips.push(`<span class="chip muted">Tempo unclear</span>`);
+  return `<div class="role">${role}</div><div class="name">${esc(t.input)}</div><div class="chips">${chips.join("")}</div>
+    ${t.error ? `<p class="error small">${esc(t.error)}</p>` : ""}`;
+}
+
+function badge(report) {
+  const { label } = report.relationship.assessment;
+  const sa = report.relationship.shared_audio, ms = report.relationship.musical_similarity;
+  if (label === "shared_audio") {
+    const s = sa.segments[0];
+    const n = sa.segments.length;
+    return { cls: "shared", pill: "Shares recorded audio",
+      detail: `${n} passage${n > 1 ? "s" : ""}, strongest ${s.aligned_hashes} aligned hashes` };
+  }
+  if (label === "musical_similarity") {
+    const b = ms.best;
+    const bits = [b.transposition_semitones ? semis(b.transposition_semitones) : "same key"];
+    bits.push(b.tempo_ratio !== 1 ? `${b.tempo_ratio}\u00d7 tempo` : "same tempo");
+    bits.push(`similarity ${b.mean_similarity.toFixed(2)}`);
+    return { cls: "musical", pill: "Musical resemblance", detail: bits.join(" \u00b7 ") };
+  }
+  if (label === "identical_file") return { cls: "same", pill: "Same file", detail: "Byte-for-byte identical" };
+  if (label === "not_compared") return { cls: "", pill: "Not compared", detail: "A track could not be analysed" };
+  return { cls: "", pill: "No connection found", detail: "Nothing passed the thresholds" };
+}
+
+// ---- timelines ----
+const COLS = 900;
+
+function regions(report, side) {
+  const out = [];
+  const rel = report.relationship;
+  for (const s of rel.shared_audio?.segments || []) {
+    out.push({ from: s[`${side}_start_seconds`], to: s[`${side}_end_seconds`], color: GREEN });
+  }
+  const b = rel.musical_similarity?.best;
+  if (rel.musical_similarity?.detected && b) out.push({ from: b[`${side}_start_seconds`], to: b[`${side}_end_seconds`], color: VIOLET });
+  return out;
+}
+
+function drawLane(canvas, height, paint, v, marks) {
+  const { ctx, w, h } = chart.setup(canvas, height);
+  paint(ctx, w, h);
+  for (const m of marks) {
+    const x0 = (m.from / v.duration) * w, x1 = (m.to / v.duration) * w;
+    ctx.fillStyle = m.color + "33";
+    ctx.fillRect(x0, 0, Math.max(2, x1 - x0), h);
+    ctx.fillStyle = m.color;
+    ctx.fillRect(x0, 0, 2, h);
+    ctx.fillRect(Math.max(x0, x1 - 2), 0, 2, h);
+  }
+}
+
+function timeline(el, role, track, v, marks) {
+  el.innerHTML = `<div class="head"><span><b>${esc(track.input)}</b> \u00b7 ${role}</span><span>${clock(v.duration)}</span></div>
+    <div class="lane"><span>Waveform</span><canvas></canvas></div>
+    <div class="lane"><span>Spectrogram</span><canvas></canvas></div>
+    <div class="lane"><span>Chroma</span><canvas></canvas></div>`;
+  const [wave, spec, chroma] = el.querySelectorAll("canvas");
+  wave.setAttribute("aria-label", `Waveform of ${track.input}`);
+  spec.setAttribute("aria-label", `Spectrogram of ${track.input}`);
+  chroma.setAttribute("aria-label", `Chromagram of ${track.input}`);
+  for (const c of [wave, spec, chroma]) c.setAttribute("role", "img");
+  el._draw = () => {
+    drawLane(wave, 46, (ctx, w, h) => {
+      const scale = v.peak > 0 ? (h / 2 - 1) / v.peak : 0;
+      ctx.fillStyle = "#9ca3af";
+      for (let x = 0; x < w; x++) {
+        const c = Math.min(v.cols - 1, Math.floor((x / w) * v.cols));
+        const y0 = h / 2 - v.waveMax[c] * scale, y1 = h / 2 - v.waveMin[c] * scale;
+        ctx.fillRect(x, y0, 1, Math.max(1, y1 - y0));
+      }
+    }, v, marks);
+    const specImg = spectrogramImage(v), chromaImg = chromaImage(v);
+    drawLane(spec, 110, (ctx, w, h) => ctx.drawImage(specImg, 0, 0, w, h), v, marks);
+    drawLane(chroma, 48, (ctx, w, h) => { ctx.imageSmoothingEnabled = false; ctx.drawImage(chromaImg, 0, 0, w, h); }, v, marks);
+  };
+  el._draw();
+}
+
+function links(report, qDur, rDur) {
+  const svg = $("links");
+  const paths = [];
+  const add = (q0, q1, r0, r1, color) => {
+    const a = (q0 / qDur) * 1000, b = (q1 / qDur) * 1000, c = (r1 / rDur) * 1000, d = (r0 / rDur) * 1000;
+    paths.push(`<path d="M${a},0 L${b},0 C${b},32 ${c},32 ${c},64 L${d},64 C${d},32 ${a},32 ${a},0 Z"
+      fill="${color}" fill-opacity=".28" stroke="${color}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`);
+  };
+  const rel = report.relationship;
+  for (const s of rel.shared_audio?.segments || []) {
+    add(s.query_start_seconds, s.query_end_seconds, s.reference_start_seconds, s.reference_end_seconds, GREEN);
+  }
+  const b = rel.musical_similarity?.best;
+  if (rel.musical_similarity?.detected && b) {
+    add(b.query_start_seconds, b.query_end_seconds, b.reference_start_seconds, b.reference_end_seconds, VIOLET);
+  }
+  svg.innerHTML = paths.join("") ||
+    `<text x="500" y="38" text-anchor="middle" fill="#777" font-size="13" style="font: 13px system-ui">no linked passages</text>`;
+  svg.setAttribute("aria-label", paths.length ? `${paths.length} linked passage(s) between the tracks` : "No linked passages");
+  svg.setAttribute("preserveAspectRatio", paths.length ? "none" : "xMidYMid meet");
+}
+
+// ---- evidence ----
+function signals(report, views) {
+  const d = report.diagnostics, a = d.alignment, label = report.relationship.assessment.label;
+  const out = [];
+  const min = d.min_aligned_hashes;
+  const sweep = d.pitch_sweep;
+  const zero = sweep.semitones.indexOf(0);
+  let best = { n: sweep.pitch_only[zero], s: 0, mode: "" };
+  sweep.semitones.forEach((s, i) => {
+    if (s === 0) return;
+    if (sweep.pitch_only[i] > best.n) best = { n: sweep.pitch_only[i], s, mode: "pitch only" };
+    if (sweep.speed[i] > best.n) best = { n: sweep.speed[i], s, mode: "pitch and speed" };
+  });
+  if (best.s !== 0 && best.n >= min && best.n >= 2 * Math.max(1, sweep.pitch_only[zero])) {
+    out.push(`<b>Possibly pitch-shifted.</b> The query's fingerprints line up with the reference if the query is
+      ${semis(best.s)} relative to it (${best.mode}): ${best.n} aligned hashes against ${sweep.pitch_only[zero]} unshifted.
+      ${label === "shared_audio"
+        ? "Motif's detector only searches the unshifted pitch, so the passages above are a weaker, partial view of the match."
+        : "Motif's detector does not search shifted pitches, so this is not reported as shared audio."}`);
+  }
+  if (label !== "shared_audio" && a.best_aligned >= min) {
+    out.push(`<b>Spread-out agreement.</b> ${a.best_aligned} hashes agree on one offset
+      (${a.best_offset_seconds.toFixed(2)} s), but no continuous run (gaps under 2 s) reached ${min}. This can
+      happen with a sample that is short and repeated, or buried under other sounds.`);
+  } else if (label !== "shared_audio" && a.best_aligned >= min / 2) {
+    out.push(`<b>Near miss.</b> The strongest offset has ${a.best_aligned} aligned hashes; shared audio needs ${min}.
+      A short or heavily processed sample could look like this.`);
+  }
+  const cap = d.peaks_per_second_cap;
+  for (const [side, name] of [["query", report.query.input], ["reference", report.reference.input]]) {
+    const p = d[side].peaks_found_per_second;
+    const found = p.reduce((s, x) => s + x, 0);
+    const dropped = p.reduce((s, x) => s + Math.max(0, x - cap), 0);
+    if (found && dropped / found >= 0.25) {
+      out.push(`<b>Dense mix in ${esc(name)}.</b> ${Math.round((100 * dropped) / found)}% of its spectral peaks were
+        over the ${cap}-per-second cap and dropped, so quieter layers (a buried sample, say) are under-represented.`);
+    }
+  }
+  const tr = d.chroma_transposition;
+  const ms = report.relationship.musical_similarity;
+  const bestT = Math.max(...tr.best_window_similarity);
+  if (!ms?.detected && bestT >= d.melodic_min_similarity) {
+    const s = tr.semitones[tr.best_window_similarity.indexOf(bestT)];
+    out.push(`<b>Brief melodic match.</b> One 8-second window reached ${bestT.toFixed(2)} at ${semis(s)}, but not for
+      3 windows in a row.`);
+  }
+  const shortest = Math.min(views.q.duration, views.r.duration);
+  if (shortest < 10) {
+    out.push(`<b>Short input.</b> One track is only ${shortest.toFixed(1)} s long; the melodic check needs at least
+      12 s of overlap (3 windows), and short clips carry few fingerprints.`);
+  }
+  return out.length ? out.map((s) => `<li>${s}</li>`).join("")
+    : `<li class="ok">No near misses: nothing came close to a threshold that was not already reported.</li>`;
+}
+
+function evidence(report, views) {
+  const d = report.diagnostics, a = d.alignment, min = d.min_aligned_hashes;
+  const qDur = report.query.duration_seconds, rDur = report.reference.duration_seconds;
+  const tol = 2.5 * d.frame_seconds;
+  chart.scatter($("g-dots"), {
+    xs: a.pair_query_seconds, ys: a.pair_reference_seconds, xMax: qDur, yMax: rDur, color: BLUE,
+    highlight: a.best_aligned >= 5 ? (x, y) => Math.abs(y - x - a.best_offset_seconds) <= tol : null,
+    xLabel: "query time (s)", yLabel: "reference time (s)",
+  });
+  const h = a.offset_histogram;
+  chart.series($("g-offsets"), {
+    x0: h.start_seconds, dx: h.bin_seconds, series: [{ values: h.counts, color: BLUE }],
+    threshold: min, thresholdLabel: `${min} needed`, xLabel: "offset (s)", yLabel: "hashes",
+  });
+
+  const per = a.aligned_per_second;
+  const running = [];
+  let total = 0, empty = 0;
+  for (const v of per) {
+    empty = v ? 0 : empty + 1;
+    if (empty >= 2) total = 0;
+    total += v;
+    running.push(total);
+  }
+  chart.series($("g-short"), {
+    dx: d.bucket_seconds, xMax: qDur, threshold: min, thresholdLabel: `${min} in one run`,
+    series: [{ name: "per second", values: per, color: BLUE }, { name: "running total", values: running, color: AMBER, line: true }],
+    bands: regions(report, "query").filter((m) => m.color === GREEN).map((m) => ({ ...m, color: "rgba(30,215,96,.12)" })),
+    xLabel: "query time (s)", yLabel: "aligned hashes",
+  });
+
+  const sw = d.pitch_sweep;
+  chart.bars($("g-sweep"), {
+    labels: sw.semitones.map((s) => signed(s)), threshold: min, thresholdLabel: `${min} needed`,
+    series: [{ name: "pitch only", values: sw.pitch_only, color: BLUE }, { name: "pitch + speed", values: sw.speed, color: TEAL }],
+    xLabel: "query pitch relative to reference (semitones)", yLabel: "best aligned",
+  });
+
+  const pct = (num, den) => num.map((v, i) => (den[i] ? (100 * v) / den[i] : 0));
+  chart.series($("g-processed"), {
+    dx: d.bucket_seconds, xMax: qDur,
+    series: [
+      { name: "matched anywhere", values: pct(a.matched_per_second, a.query_hashes_per_second), color: GREY },
+      { name: "on best offset", values: pct(a.aligned_per_second, a.query_hashes_per_second), color: GREEN, line: true },
+    ],
+    xLabel: "query time (s)", yLabel: "% of query hashes",
+  });
+
+  const qp = d.query.peaks_found_per_second, rp = d.reference.peaks_found_per_second;
+  chart.series($("g-dense"), {
+    dx: d.bucket_seconds, xMax: Math.max(qDur, rDur), threshold: d.peaks_per_second_cap, thresholdLabel: `${d.peaks_per_second_cap} kept`,
+    series: [{ name: "query", values: qp, color: BLUE, line: true }, { name: "reference", values: rp, color: VIOLET, line: true }],
+    xLabel: "time (s)", yLabel: "peaks found",
+  });
+
+  const sim = d.melodic_min_similarity;
+  const simColor = (v) => (v >= sim ? VIOLET : GREY);
+  chart.bars($("g-transpose"), {
+    labels: d.chroma_transposition.semitones.map((s) => signed(s)), yMin: 0, yMax: 1,
+    series: [{ values: d.chroma_transposition.best_window_similarity, color: simColor }],
+    threshold: sim, thresholdLabel: `${sim}`, xLabel: "query transposed by (semitones)", yLabel: "similarity",
+  });
+  chart.bars($("g-tempo"), {
+    labels: d.chroma_tempo.tempo_ratios.map((r) => `${r}\u00d7`), yMin: 0, yMax: 1,
+    series: [{ values: d.chroma_tempo.best_window_similarity, color: simColor }],
+    threshold: sim, thresholdLabel: `${sim}`, xLabel: "tempo ratio", yLabel: "similarity",
+  });
+
+  chart.bars($("g-profile"), {
+    labels: PITCHES, yMin: 0, yMax: 1,
+    series: [{ name: "query", values: pitchProfile(views.q), color: BLUE }, { name: "reference", values: pitchProfile(views.r), color: VIOLET }],
+    yLabel: "relative weight",
+  });
+}
+
+// ---- run ----
+let last = null;
+
+function render() {
+  if (!last) return;
+  const { report, views } = last;
+  $("tl-query")._draw?.();
+  $("tl-reference")._draw?.();
+  if (report.diagnostics) evidence(report, views);
+}
+
+$("form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const run = $("run");
+  run.disabled = true;
+  $("status").className = "muted";
+  $("status").textContent = "Decoding and comparing\u2026";
+  try {
+    const [query, reference] = await Promise.all([decode($("query").files[0]), decode($("reference").files[0])]);
+    const report = await compare(query, reference, `Web Audio (${navigator.userAgent})`);
+    $("status").textContent = "Drawing\u2026";
+    await new Promise(requestAnimationFrame);
+    const views = { q: analyse(query.samples, SAMPLE_RATE, COLS), r: analyse(reference.samples, SAMPLE_RATE, COLS) };
+    last = { report, views };
+
+    $("result").hidden = false;
+    $("card-query").innerHTML = trackCard("Track A \u00b7 query", report.query);
+    $("card-reference").innerHTML = trackCard("Track B \u00b7 reference", report.reference);
+    const b = badge(report);
+    $("badge").className = `badge ${b.cls}`;
+    $("badge").innerHTML = `<span class="pill">${b.pill}</span><span class="detail">${esc(b.detail)}</span>`;
+    $("statement").className = `statement ${b.cls}`;
+    $("statement").textContent = report.relationship.assessment.statement;
+
+    timeline($("tl-query"), "Track A", report.query, views.q, regions(report, "query"));
+    timeline($("tl-reference"), "Track B", report.reference, views.r, regions(report, "reference"));
+    links(report, views.q.duration, views.r.duration);
+
+    $("evidence").hidden = !report.diagnostics;
+    if (report.diagnostics) {
+      $("signals").innerHTML = signals(report, views);
+      evidence(report, views);
+    }
+    $("output").textContent = JSON.stringify(report, null, 2);
+    $("status").textContent = "";
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    $("status").className = "error";
+    $("status").textContent = err.message || String(err);
+  } finally {
+    run.disabled = false;
+  }
+});
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(render, 150);
+});
+</script>
+</body>
+</html>
