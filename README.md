@@ -9,7 +9,14 @@ The engine is C11 compiled to WebAssembly. Decoding and analysis run client-side
 no audio leaves the browser.
 
 **Live:** https://jeffasante.github.io/motif-web/ (the Sample, Cover and Unrelated
-buttons load synthetic clips from `examples/` and run a comparison)
+buttons load synthetic clips from `examples/` and run a comparison; Real remix
+loads a ccMixter remix and its source)
+
+Real-remix example files, unmodified, licensed
+[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/):
+`examples/reverie-ghost.mp3` is
+["Reverie (small theme)"](https://ccmixter.org/files/_ghost/25389) by _ghost, and
+`examples/rrr-pitx.mp3` is ["R&R&R"](https://ccmixter.org/files/Pitx/24565) by Pitx.
 
 ![Motif comparing two tracks: drop a query and a reference, compare, and play the matched passage in each](docs/demo.gif)
 
