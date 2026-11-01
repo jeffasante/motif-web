@@ -76,6 +76,21 @@
   .links path:hover, .links path:focus-visible { fill-opacity: .6; }
   .legend { display: flex; flex-wrap: wrap; gap: 1rem; font-size: .8rem; color: var(--muted); margin-top: .6rem; }
   .legend i { display: inline-block; width: .8rem; height: .8rem; border-radius: 2px; vertical-align: -1px; margin-right: .3rem; }
+  .answer { margin: 1rem 0 0; font-size: 1.05rem; }
+  .answer.shared b { color: var(--green); }
+  .answer.musical b { color: var(--violet); }
+
+  /* Matched passages */
+  .passages { display: grid; gap: .75rem; margin-top: .75rem; }
+  .passage { background: var(--card); border-radius: 12px; padding: .8rem 1rem; border-left: 4px solid var(--c); }
+  .passage .phead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem; }
+  .passage .prow { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin-top: .5rem; font-size: .85rem; }
+  .passage .prow > .muted { width: 4.5rem; }
+  .passage input { width: 5.5rem; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line);
+                   border-radius: 6px; padding: .2rem .4rem; }
+  .passage button { padding: .35rem .9rem; font-size: .82rem; }
+  .passage button.ghost { background: var(--card2); color: var(--text); }
+  .btns { display: flex; flex-wrap: wrap; gap: .4rem; }
 
   /* Evidence */
   .signals { list-style: none; padding: 0; margin: .75rem 0 0; display: grid; gap: .5rem; }
@@ -137,18 +152,26 @@
     <div class="badge" id="badge"></div>
     <div class="track" id="card-reference"></div>
   </div>
+  <p class="answer" id="answer"></p>
   <p class="statement" id="statement"></p>
 
   <h2>Where they connect</h2>
   <p class="muted small">Each track's waveform, spectrogram (pitch up, time across) and chroma (the 12 pitch classes, C at the bottom).
   Linked bands show the passages Motif matched. Click anywhere on a track to play from there; click a band to hear
-  the matched passage in Track A, then in Track B.</p>
+  the matched passage in both tracks together.</p>
   <div class="timeline" id="tl-query"></div>
   <div class="links"><span></span><svg id="links" viewBox="0 0 1000 64" preserveAspectRatio="none" role="img"></svg></div>
   <div class="timeline" id="tl-reference"></div>
   <div class="legend">
     <span><i style="background: var(--green)"></i>Shared recorded audio</span>
     <span><i style="background: var(--violet)"></i>Strongest musical (chroma) match</span>
+  </div>
+
+  <div id="passages-wrap" hidden>
+    <h2>Matched passages</h2>
+    <p class="muted small">Play a matched passage in both tracks at the same time, or one after the other. Change the start
+    and end to trim it, then save that part of either track as a WAV file.</p>
+    <div class="passages" id="passages"></div>
   </div>
 
   <div id="evidence">
@@ -256,20 +279,24 @@ function asMp4(bytes) {
 }
 
 // Decode, average the channels (as Motif's FFmpeg path does), then resample to 22050 Hz.
-async function decode(file) {
-  const bytes = await file.arrayBuffer();
-  const digest = await sha256(bytes);
+async function decodeBytes(bytes, name) {
   const ctx = new AudioContext();
-  let decoded;
   try {
-    decoded = await ctx.decodeAudioData(bytes.slice(0));
+    return await ctx.decodeAudioData(bytes.slice(0));
   } catch (err) {
     const relabelled = asMp4(bytes);
-    decoded = relabelled && await ctx.decodeAudioData(relabelled).catch(() => null);
-    if (!decoded) throw new Error(`${file.name}: the browser could not decode this file (${err.message || err})`);
+    const decoded = relabelled && await ctx.decodeAudioData(relabelled).catch(() => null);
+    if (!decoded) throw new Error(`${name}: the browser could not decode this file (${err.message || err})`);
+    return decoded;
   } finally {
     ctx.close();
   }
+}
+
+async function decode(file) {
+  const bytes = await file.arrayBuffer();
+  const digest = await sha256(bytes);
+  const decoded = await decodeBytes(bytes, file.name);
   const mono = new Float32Array(decoded.length);
   for (let c = 0; c < decoded.numberOfChannels; c++) {
     const ch = decoded.getChannelData(c);
@@ -339,12 +366,13 @@ function badge(report) {
 }
 
 // ---- playback ----
-const players = {};
-let stopAt = null, then = null, frame = 0;
+const players = {}, sources = {};
+let stops = {}, then = null, frame = 0;
 
 function setSources(files) {
   stopAll();
   for (const [side, file] of Object.entries(files)) {
+    sources[side] = file;
     if (players[side]) URL.revokeObjectURL(players[side].src);
     const audio = new Audio(URL.createObjectURL(file));
     audio.preload = "auto";
@@ -363,7 +391,7 @@ function setSources(files) {
 }
 
 function stopAll() {
-  stopAt = null;
+  stops = {};
   then = null;
   for (const a of Object.values(players)) a.pause();
 }
@@ -373,10 +401,20 @@ function play(side, from, until = null, next = null) {
   if (!audio) return;
   stopAll();
   audio.currentTime = from;
-  stopAt = until == null ? null : { side, t: until };
+  if (until != null) stops[side] = until;
   then = next;
   audio.play().catch(() => {});
   sync(side);
+}
+
+// Both tracks at once, each stopping at the end of its own passage.
+function playBoth(q0, q1, r0, r1) {
+  if (!players.query || !players.reference) return;
+  stopAll();
+  players.query.currentTime = q0;
+  players.reference.currentTime = r0;
+  stops = { query: q1, reference: r1 };
+  for (const side of ["query", "reference"]) { players[side].play().catch(() => {}); sync(side); }
 }
 
 function toggle(side) {
@@ -406,9 +444,9 @@ function sync(side) {
 
 function checkStop(side) {
   const audio = players[side];
-  if (stopAt?.side !== side || audio.currentTime < stopAt.t) return;
+  if (stops[side] == null || audio.currentTime < stops[side]) return;
   audio.pause();
-  stopAt = null;
+  delete stops[side];
   if (then) { const next = then; then = null; next(); }
 }
 
@@ -498,8 +536,8 @@ function links(report, qDur, rDur) {
     paths.push(`<path d="M${a},0 L${b},0 C${b},32 ${c},32 ${c},64 L${d},64 C${d},32 ${a},32 ${a},0 Z"
       fill="${color}" fill-opacity=".28" stroke="${color}" stroke-width="1.5" vector-effect="non-scaling-stroke"
       tabindex="0" role="button" data-span="${[q0, q1, r0, r1].join(",")}"
-      aria-label="Play ${clock(q0)} to ${clock(q1)} in Track A, then ${clock(r0)} to ${clock(r1)} in Track B"><title>Play this
-      passage in Track A, then in Track B</title></path>`);
+      aria-label="Play ${clock(q0)} to ${clock(q1)} in Track A together with ${clock(r0)} to ${clock(r1)} in Track B"><title>Play this
+      passage in both tracks together</title></path>`);
   };
   const rel = report.relationship;
   for (const s of rel.shared_audio?.segments || []) {
@@ -514,6 +552,144 @@ function links(report, qDur, rDur) {
   svg.setAttribute("role", paths.length ? "group" : "img");
   svg.setAttribute("aria-label", paths.length ? `${paths.length} linked passage(s) between the tracks` : "No linked passages");
   svg.setAttribute("preserveAspectRatio", paths.length ? "none" : "xMidYMid meet");
+}
+
+// ---- plain answer ----
+const span = (a, b) => `${clock(a)}\u2013${clock(b)}`;
+
+function answer(report) {
+  const rel = report.relationship, label = rel.assessment.label;
+  const a = esc(report.query.input), b = esc(report.reference.input);
+  if (label === "shared_audio") {
+    const segs = rel.shared_audio.segments, s = segs[0], more = segs.length - 1;
+    return { cls: "shared", html: `<b>Yes, these tracks share a sample.</b> ${a} (A) and ${b} (B) contain the same
+      recorded audio: A ${span(s.query_start_seconds, s.query_end_seconds)} matches
+      B ${span(s.reference_start_seconds, s.reference_end_seconds)}${more ? `, plus ${more} more passage${more > 1 ? "s" : ""}` : ""}.
+      Motif cannot tell which track came first, so either one may be sampling the other.` };
+  }
+  if (label === "musical_similarity") {
+    const m = rel.musical_similarity.best;
+    return { cls: "musical", html: `<b>Not a sample.</b> No recorded audio is shared, but the melody and harmony
+      resemble each other at A ${span(m.query_start_seconds, m.query_end_seconds)} and
+      B ${span(m.reference_start_seconds, m.reference_end_seconds)}: more like a cover, an interpolation or the same tune replayed.` };
+  }
+  if (label === "identical_file") return { cls: "", html: `<b>Same file.</b> Both inputs are byte-for-byte identical.` };
+  if (label === "not_compared") return { cls: "", html: `<b>No answer.</b> A track could not be analysed.` };
+  return { cls: "", html: `<b>No sample found.</b> Neither shared audio nor a musical resemblance passed the thresholds.` };
+}
+
+// ---- matched passages: play, trim, split, save ----
+let passages = [];
+
+function initPassages(report) {
+  const rel = report.relationship;
+  passages = (rel.shared_audio?.segments || []).map((s) => ({
+    kind: "Shared audio", color: GREEN, note: `${s.aligned_hashes} aligned hashes`,
+    q0: s.query_start_seconds, q1: s.query_end_seconds, r0: s.reference_start_seconds, r1: s.reference_end_seconds,
+  }));
+  const m = rel.musical_similarity;
+  if (m?.detected && m.best) {
+    passages.push({ kind: "Musical resemblance", color: VIOLET, note: `similarity ${m.best.mean_similarity.toFixed(2)}`,
+      q0: m.best.query_start_seconds, q1: m.best.query_end_seconds, r0: m.best.reference_start_seconds, r1: m.best.reference_end_seconds });
+  }
+  for (const p of passages) p.map = { q: p.q0, r: p.r0, k: (p.r1 - p.r0) / (p.q1 - p.q0) || 1 };
+  renderPassages();
+}
+
+function renderPassages() {
+  $("passages-wrap").hidden = !passages.length;
+  const row = (i, side, t0, t1) => `<div class="prow"><span class="muted">${side === "q" ? "Track A" : "Track B"}</span>
+    <label>from <input type="number" min="0" step="0.1" value="${t0.toFixed(1)}" data-i="${i}" data-k="${side}0"
+      aria-label="${side === "q" ? "Track A" : "Track B"} start (seconds)"></label>
+    <label>to <input type="number" min="0" step="0.1" value="${t1.toFixed(1)}" data-i="${i}" data-k="${side}1"
+      aria-label="${side === "q" ? "Track A" : "Track B"} end (seconds)"></label>
+    <span class="muted small dur">${(t1 - t0).toFixed(1)} s</span></div>`;
+  $("passages").innerHTML = passages.map((p, i) => `<div class="passage" style="--c:${p.color}">
+    <div class="phead"><b>${i + 1}. ${p.kind}</b><span class="muted small">${esc(p.note)}</span></div>
+    ${row(i, "q", p.q0, p.q1)}${row(i, "r", p.r0, p.r1)}
+    <div class="btns">
+      <button type="button" data-i="${i}" data-act="both">Play both together</button>
+      <button type="button" class="ghost" data-i="${i}" data-act="seq">A then B</button>
+      <button type="button" class="ghost" data-i="${i}" data-act="a">Play A</button>
+      <button type="button" class="ghost" data-i="${i}" data-act="b">Play B</button>
+      <button type="button" class="ghost" data-i="${i}" data-act="split"
+        title="Cut this passage in two at Track A's playhead (or the middle if the playhead is outside it)">Split</button>
+      <button type="button" class="ghost" data-i="${i}" data-act="saveA">Save A clip</button>
+      <button type="button" class="ghost" data-i="${i}" data-act="saveB">Save B clip</button>
+    </div></div>`).join("");
+}
+
+$("passages").addEventListener("change", (e) => {
+  const { i, k } = e.target.dataset;
+  if (k == null) return;
+  const p = passages[i], dur = last.report[k[0] === "q" ? "query" : "reference"].duration_seconds;
+  const lo = k[1] === "0" ? 0 : p[k[0] + "0"] + 0.1, hi = k[1] === "0" ? p[k[0] + "1"] - 0.1 : dur;
+  const v = Number(e.target.value);
+  p[k] = Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : p[k];
+  // Update this row in place: rebuilding the list would remove the focused input mid-event.
+  e.target.value = p[k].toFixed(1);
+  e.target.closest(".prow").querySelector(".dur").textContent = `${(p[k[0] + "1"] - p[k[0] + "0"]).toFixed(1)} s`;
+});
+
+$("passages").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const p = passages[btn.dataset.i];
+  const act = btn.dataset.act;
+  if (act === "both") playBoth(p.q0, p.q1, p.r0, p.r1);
+  else if (act === "seq") playPassage(p.q0, p.q1, p.r0, p.r1);
+  else if (act === "a") play("query", p.q0, p.q1);
+  else if (act === "b") play("reference", p.r0, p.r1);
+  else if (act === "split") {
+    const t = players.query?.currentTime;
+    const f = t > p.q0 + 0.1 && t < p.q1 - 0.1 ? (t - p.q0) / (p.q1 - p.q0) : 0.5;
+    const qm = p.q0 + f * (p.q1 - p.q0);
+    // Map through the matched alignment so both halves still line up after either side was trimmed.
+    let rm = p.map.r + (qm - p.map.q) * p.map.k;
+    if (!(rm > p.r0 + 0.1 && rm < p.r1 - 0.1)) rm = p.r0 + f * (p.r1 - p.r0);
+    passages.splice(btn.dataset.i, 1, { ...p, q1: qm, r1: rm }, { ...p, q0: qm, r0: rm });
+    renderPassages();
+  } else {
+    const side = act === "saveA" ? "query" : "reference";
+    const [t0, t1] = side === "query" ? [p.q0, p.q1] : [p.r0, p.r1];
+    btn.disabled = true;
+    try { await saveClip(side, t0, t1); }
+    catch (err) { $("status").className = "error"; $("status").textContent = err.message || String(err); }
+    finally { btn.disabled = false; }
+  }
+});
+
+const fullAudio = {};
+
+async function saveClip(side, t0, t1) {
+  const file = sources[side];
+  if (fullAudio[side]?.file !== file) {
+    fullAudio[side] = { file, buffer: await decodeBytes(await file.arrayBuffer(), file.name) };
+  }
+  const buf = fullAudio[side].buffer, sr = buf.sampleRate, ch = buf.numberOfChannels;
+  const a = Math.max(0, Math.floor(t0 * sr)), z = Math.min(buf.length, Math.ceil(t1 * sr)), n = Math.max(0, z - a);
+  const view = new DataView(new ArrayBuffer(44 + n * ch * 2));
+  const str = (o, s) => [...s].forEach((c, i) => view.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF"); view.setUint32(4, 36 + n * ch * 2, true); str(8, "WAVE");
+  str(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, ch, true);
+  view.setUint32(24, sr, true); view.setUint32(28, sr * ch * 2, true); view.setUint16(32, ch * 2, true); view.setUint16(34, 16, true);
+  str(36, "data"); view.setUint32(40, n * ch * 2, true);
+  const data = Array.from({ length: ch }, (_, c) => buf.getChannelData(c));
+  let o = 44;
+  for (let i = a; i < z; i++) {
+    for (let c = 0; c < ch; c++, o += 2) {
+      const s = Math.max(-1, Math.min(1, data[c][i]));
+      view.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+  }
+  const url = URL.createObjectURL(new Blob([view], { type: "audio/wav" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${file.name.replace(/\.[^.]+$/, "")}_${side === "query" ? "A" : "B"}_${t0.toFixed(1)}-${t1.toFixed(1)}s.wav`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 // ---- evidence ----
@@ -680,6 +856,10 @@ $("form").addEventListener("submit", async (event) => {
     $("badge").innerHTML = `<span class="pill">${b.pill}</span><span class="detail">${esc(b.detail)}</span>`;
     $("statement").className = `statement ${b.cls}`;
     $("statement").textContent = report.relationship.assessment.statement;
+    const ans = answer(report);
+    $("answer").className = `answer ${ans.cls}`;
+    $("answer").innerHTML = ans.html;
+    initPassages(report);
 
     timeline($("tl-query"), "Track A", report.query, views.q, regions(report, "query"));
     timeline($("tl-reference"), "Track B", report.reference, views.r, regions(report, "reference"));
@@ -705,7 +885,7 @@ const bandPlay = (e) => {
   const span = e.target.closest?.("path[data-span]")?.dataset.span;
   if (!span) return;
   if (e.type === "keydown") { if (e.key !== "Enter" && e.key !== " ") return; e.preventDefault(); }
-  playPassage(...span.split(",").map(Number));
+  playBoth(...span.split(",").map(Number));
 };
 $("links").addEventListener("click", bandPlay);
 $("links").addEventListener("keydown", bandPlay);

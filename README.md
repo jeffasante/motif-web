@@ -10,9 +10,13 @@ Everything runs in the page. Your files are not uploaded.
 
 Choose a query file and a reference file, then press **Compare**. You get:
 
-- two track cards (duration, key, tempo) joined by a connection badge;
+- two track cards (duration, key, tempo) joined by a connection badge, and a plain
+  answer: a shared sample, a musical resemblance only (not a sample), or nothing found;
 - linked timelines, each with a waveform, a spectrogram and a chroma lane; matched
   passages are highlighted and connected across the two tracks;
+- **Matched passages**: play a passage in both tracks together or one after the other,
+  trim or split it, and save either side as a WAV clip (cut from the full-quality
+  decode, all channels kept, 16-bit at the browser's audio rate);
 - **Why this result**: graphs of the engine's own evidence against its thresholds,
   including how short, pitch-shifted, heavily processed samples and dense mixes
   fall short, plus plain-language hints;
