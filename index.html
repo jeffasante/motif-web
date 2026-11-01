@@ -36,6 +36,10 @@
   .actions { grid-column: 1 / -1; display: flex; gap: 1rem; align-items: center; }
   button { font: inherit; font-weight: 700; padding: .65rem 1.8rem; border: 0; border-radius: 999px; background: var(--green); color: #000; cursor: pointer; }
   button:disabled { opacity: .5; cursor: progress; }
+  .examples { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+  .examples button { font-weight: 600; font-size: .85rem; padding: .35rem .9rem; background: var(--card2); color: var(--text);
+                     border: 1px solid var(--line); }
+  .examples button:hover { border-color: var(--green); }
   #status:empty { display: none; }
   .error { color: var(--red); }
 
@@ -155,6 +159,12 @@
     <span class="muted small">The suspected original</span>
     <input type="file" id="reference" accept="audio/*,video/*,.wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.mp4,.mov" required>
   </label>
+  <div class="examples" id="examples">
+    <span class="muted small">No files to hand? Try an example (synthetic clips):</span>
+    <button type="button" data-q="flip.mp3" data-r="song1.flac" title="flip.mp3 vs song1.flac">Sample</button>
+    <button type="button" data-q="cover.mp3" data-r="song0.flac" title="cover.mp3 vs song0.flac">Cover</button>
+    <button type="button" data-q="unrelated.wav" data-r="song0.flac" title="unrelated.wav vs song0.flac">Unrelated</button>
+  </div>
   <div class="actions">
     <button type="submit" id="run">Compare</button>
     <span id="status" role="status" aria-live="polite" class="muted"></span>
@@ -342,6 +352,27 @@ for (const role of ["query", "reference"]) {
     if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; show(); }
   });
 }
+
+$("examples").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-q]");
+  if (!btn) return;
+  $("status").className = "muted";
+  $("status").textContent = "Loading example\u2026";
+  try {
+    for (const [role, name] of [["query", btn.dataset.q], ["reference", btn.dataset.r]]) {
+      const res = await fetch(`examples/${name}`);
+      if (!res.ok) throw new Error(`Could not load ${name} (HTTP ${res.status})`);
+      const dt = new DataTransfer();
+      dt.items.add(new File([await res.blob()], name, { type: res.headers.get("content-type") || "" }));
+      $(role).files = dt.files;
+      $(role).dispatchEvent(new Event("change"));
+    }
+    $("form").requestSubmit();
+  } catch (err) {
+    $("status").className = "error";
+    $("status").textContent = err.message || String(err);
+  }
+});
 
 // ---- helpers ----
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);

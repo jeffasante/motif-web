@@ -8,7 +8,8 @@ harmonic content, possibly transposed or at another tempo) via chroma alignment.
 The engine is C11 compiled to WebAssembly. Decoding and analysis run client-side;
 no audio leaves the browser.
 
-**Live:** https://jeffasante.github.io/motif-web/
+**Live:** https://jeffasante.github.io/motif-web/ (the Sample, Cover and Unrelated
+buttons load synthetic clips from `examples/` and run a comparison)
 
 ![Motif comparing two tracks: drop a query and a reference, compare, and play the matched passage in each](docs/demo.gif)
 
