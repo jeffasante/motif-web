@@ -116,14 +116,14 @@
     <span class="role">Track A (query)</span>
     <span class="file" id="name-query">Choose or drop an audio file</span>
     <span class="muted small">The track that may contain a sample or cover</span>
-    <input type="file" id="query" accept="audio/*" required>
+    <input type="file" id="query" accept="audio/*,video/*,.wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.mp4,.mov" required>
   </label>
   <span class="vs" aria-hidden="true">vs</span>
   <label class="drop" id="drop-reference">
     <span class="role">Track B (reference)</span>
     <span class="file" id="name-reference">Choose or drop an audio file</span>
     <span class="muted small">The suspected original</span>
-    <input type="file" id="reference" accept="audio/*" required>
+    <input type="file" id="reference" accept="audio/*,video/*,.wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.mp4,.mov" required>
   </label>
   <div class="actions">
     <button type="submit" id="run">Compare</button>
@@ -226,7 +226,7 @@
 </section>
 
 <footer>Visuals other than the evidence graphs are computed in JavaScript for display only. Which audio formats open
-depends on your browser (WAV, MP3 and FLAC are safest).</footer>
+depends on your browser (WAV, MP3 and FLAC are safest; phone videos in MOV or MP4 work too).</footer>
 </main>
 
 <script type="module">
@@ -242,6 +242,19 @@ async function sha256(bytes) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Safari refuses QuickTime-branded files (an iPhone .mov) though the audio is plain AAC:
+// a copy with its ftyp brands relabelled as MP4 decodes. Null if it is not QuickTime.
+function asMp4(bytes) {
+  const b = new Uint8Array(bytes.slice(0));
+  const tag = (o) => String.fromCharCode(...b.subarray(o, o + 4));
+  if (b.length < 16 || tag(4) !== "ftyp" || tag(8) !== "qt  ") return null;
+  const size = Math.min(new DataView(b.buffer).getUint32(0), b.length);
+  const put = (o, s) => b.set([...s].map((c) => c.charCodeAt(0)), o);
+  put(8, "mp42"); // WebKit rejects a major brand of isom here
+  for (let o = 16; o + 4 <= size; o += 4) put(o, "isom");
+  return b.buffer;
+}
+
 // Decode, average the channels (as Motif's FFmpeg path does), then resample to 22050 Hz.
 async function decode(file) {
   const bytes = await file.arrayBuffer();
@@ -251,7 +264,9 @@ async function decode(file) {
   try {
     decoded = await ctx.decodeAudioData(bytes.slice(0));
   } catch (err) {
-    throw new Error(`${file.name}: the browser could not decode this file (${err.message || err})`);
+    const relabelled = asMp4(bytes);
+    decoded = relabelled && await ctx.decodeAudioData(relabelled).catch(() => null);
+    if (!decoded) throw new Error(`${file.name}: the browser could not decode this file (${err.message || err})`);
   } finally {
     ctx.close();
   }
