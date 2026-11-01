@@ -63,8 +63,17 @@
   .lane { display: grid; grid-template-columns: 5.5rem 1fr; align-items: center; gap: .5rem; margin-top: .35rem; }
   .lane span { font-size: .75rem; color: var(--muted); text-align: right; }
   .lane canvas { width: 100%; display: block; border-radius: 4px; background: #000; }
+  .timeline .head { align-items: center; }
+  .timeline .head > span:first-child { display: flex; align-items: center; gap: .6rem; min-width: 0; overflow-wrap: anywhere; }
+  .play { flex: none; width: 2.1rem; height: 2.1rem; padding: 0; font-size: .75rem; line-height: 1; }
+  .time { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .cv { position: relative; cursor: pointer; }
+  .ph { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; margin-left: -1px; background: #fff;
+        box-shadow: 0 0 3px #000; pointer-events: none; }
   .links { display: grid; grid-template-columns: 5.5rem 1fr; gap: .5rem; padding: 0 1rem; }
   .links svg { width: 100%; height: 64px; display: block; }
+  .links path { cursor: pointer; outline: none; }
+  .links path:hover, .links path:focus-visible { fill-opacity: .6; }
   .legend { display: flex; flex-wrap: wrap; gap: 1rem; font-size: .8rem; color: var(--muted); margin-top: .6rem; }
   .legend i { display: inline-block; width: .8rem; height: .8rem; border-radius: 2px; vertical-align: -1px; margin-right: .3rem; }
 
@@ -132,7 +141,8 @@
 
   <h2>Where they connect</h2>
   <p class="muted small">Each track's waveform, spectrogram (pitch up, time across) and chroma (the 12 pitch classes, C at the bottom).
-  Linked bands show the passages Motif matched.</p>
+  Linked bands show the passages Motif matched. Click anywhere on a track to play from there; click a band to hear
+  the matched passage in Track A, then in Track B.</p>
   <div class="timeline" id="tl-query"></div>
   <div class="links"><span></span><svg id="links" viewBox="0 0 1000 64" preserveAspectRatio="none" role="img"></svg></div>
   <div class="timeline" id="tl-reference"></div>
@@ -313,6 +323,95 @@ function badge(report) {
   return { cls: "", pill: "No connection found", detail: "Nothing passed the thresholds" };
 }
 
+// ---- playback ----
+const players = {};
+let stopAt = null, then = null, frame = 0;
+
+function setSources(files) {
+  stopAll();
+  for (const [side, file] of Object.entries(files)) {
+    if (players[side]) URL.revokeObjectURL(players[side].src);
+    const audio = new Audio(URL.createObjectURL(file));
+    audio.preload = "auto";
+    audio.addEventListener("play", () => { sync(side); tick(); });
+    audio.addEventListener("pause", () => sync(side));
+    audio.addEventListener("ended", () => { sync(side); if (then) { const next = then; then = null; next(); } });
+    audio.addEventListener("seeked", () => sync(side));
+    // rAF stops in background tabs; timeupdate still ends a passage there.
+    audio.addEventListener("timeupdate", () => { if (!audio.paused) { checkStop(side); sync(side); } });
+    audio.addEventListener("error", () => {
+      $("status").className = "error";
+      $("status").textContent = `${file.name}: this browser cannot play the file back.`;
+    });
+    players[side] = audio;
+  }
+}
+
+function stopAll() {
+  stopAt = null;
+  then = null;
+  for (const a of Object.values(players)) a.pause();
+}
+
+function play(side, from, until = null, next = null) {
+  const audio = players[side];
+  if (!audio) return;
+  stopAll();
+  audio.currentTime = from;
+  stopAt = until == null ? null : { side, t: until };
+  then = next;
+  audio.play().catch(() => {});
+  sync(side);
+}
+
+function toggle(side) {
+  const audio = players[side];
+  if (!audio) return;
+  if (audio.paused) {
+    const t = audio.ended ? 0 : audio.currentTime;
+    play(side, t);
+  } else stopAll();
+}
+
+function playPassage(q0, q1, r0, r1) {
+  play("query", q0, q1, () => play("reference", r0, r1));
+}
+
+function sync(side) {
+  const el = $(`tl-${side}`), audio = players[side];
+  if (!el?._dur || !audio) return;
+  const t = audio.currentTime || 0;
+  const btn = el.querySelector(".play");
+  btn.textContent = audio.paused ? "\u25B6" : "\u275A\u275A";
+  btn.setAttribute("aria-label", `${audio.paused ? "Play" : "Pause"} ${side === "query" ? "Track A" : "Track B"}`);
+  el.querySelector(".time").textContent = `${clock(t)} / ${clock(el._dur)}`;
+  const left = `${Math.min(100, (100 * t) / el._dur)}%`;
+  for (const ph of el.querySelectorAll(".ph")) ph.style.left = left;
+}
+
+function checkStop(side) {
+  const audio = players[side];
+  if (stopAt?.side !== side || audio.currentTime < stopAt.t) return;
+  audio.pause();
+  stopAt = null;
+  if (then) { const next = then; then = null; next(); }
+}
+
+function tick() {
+  cancelAnimationFrame(frame);
+  const step = () => {
+    let playing = false;
+    for (const [side, audio] of Object.entries(players)) {
+      if (audio.paused) continue;
+      playing = true;
+      checkStop(side);
+      sync(side);
+    }
+    if (playing) frame = requestAnimationFrame(step);
+  };
+  frame = requestAnimationFrame(step);
+}
+
 // ---- timelines ----
 const COLS = 900;
 
@@ -341,10 +440,19 @@ function drawLane(canvas, height, paint, v, marks) {
 }
 
 function timeline(el, role, track, v, marks) {
-  el.innerHTML = `<div class="head"><span><b>${esc(track.input)}</b> \u00b7 ${role}</span><span>${clock(v.duration)}</span></div>
-    <div class="lane"><span>Waveform</span><canvas></canvas></div>
-    <div class="lane"><span>Spectrogram</span><canvas></canvas></div>
-    <div class="lane"><span>Chroma</span><canvas></canvas></div>`;
+  const side = el.id.slice(3);
+  const lane = (name) => `<div class="lane"><span>${name}</span><div class="cv"><canvas></canvas><div class="ph"></div></div></div>`;
+  el.innerHTML = `<div class="head"><span><button type="button" class="play">\u25B6</button><span><b>${esc(track.input)}</b>
+    \u00b7 ${role}</span></span><span class="time"></span></div>${lane("Waveform")}${lane("Spectrogram")}${lane("Chroma")}`;
+  el._dur = v.duration;
+  el.querySelector(".play").addEventListener("click", () => toggle(side));
+  for (const cv of el.querySelectorAll(".cv")) {
+    cv.addEventListener("click", (e) => {
+      const r = cv.getBoundingClientRect();
+      play(side, Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * v.duration);
+    });
+  }
+  sync(side);
   const [wave, spec, chroma] = el.querySelectorAll("canvas");
   wave.setAttribute("aria-label", `Waveform of ${track.input}`);
   spec.setAttribute("aria-label", `Spectrogram of ${track.input}`);
@@ -373,7 +481,10 @@ function links(report, qDur, rDur) {
   const add = (q0, q1, r0, r1, color) => {
     const a = (q0 / qDur) * 1000, b = (q1 / qDur) * 1000, c = (r1 / rDur) * 1000, d = (r0 / rDur) * 1000;
     paths.push(`<path d="M${a},0 L${b},0 C${b},32 ${c},32 ${c},64 L${d},64 C${d},32 ${a},32 ${a},0 Z"
-      fill="${color}" fill-opacity=".28" stroke="${color}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`);
+      fill="${color}" fill-opacity=".28" stroke="${color}" stroke-width="1.5" vector-effect="non-scaling-stroke"
+      tabindex="0" role="button" data-span="${[q0, q1, r0, r1].join(",")}"
+      aria-label="Play ${clock(q0)} to ${clock(q1)} in Track A, then ${clock(r0)} to ${clock(r1)} in Track B"><title>Play this
+      passage in Track A, then in Track B</title></path>`);
   };
   const rel = report.relationship;
   for (const s of rel.shared_audio?.segments || []) {
@@ -385,6 +496,7 @@ function links(report, qDur, rDur) {
   }
   svg.innerHTML = paths.join("") ||
     `<text x="500" y="38" text-anchor="middle" fill="#777" font-size="13" style="font: 13px system-ui">no linked passages</text>`;
+  svg.setAttribute("role", paths.length ? "group" : "img");
   svg.setAttribute("aria-label", paths.length ? `${paths.length} linked passage(s) between the tracks` : "No linked passages");
   svg.setAttribute("preserveAspectRatio", paths.length ? "none" : "xMidYMid meet");
 }
@@ -540,9 +652,10 @@ $("form").addEventListener("submit", async (event) => {
     const [query, reference] = await Promise.all([decode($("query").files[0]), decode($("reference").files[0])]);
     const report = await compare(query, reference, `Web Audio (${navigator.userAgent})`);
     $("status").textContent = "Drawing\u2026";
-    await new Promise(requestAnimationFrame);
+    await new Promise((r) => setTimeout(r, 30));
     const views = { q: analyse(query.samples, SAMPLE_RATE, COLS), r: analyse(reference.samples, SAMPLE_RATE, COLS) };
     last = { report, views };
+    setSources({ query: $("query").files[0], reference: $("reference").files[0] });
 
     $("result").hidden = false;
     $("card-query").innerHTML = trackCard("Track A \u00b7 query", report.query);
@@ -572,6 +685,15 @@ $("form").addEventListener("submit", async (event) => {
     run.disabled = false;
   }
 });
+
+const bandPlay = (e) => {
+  const span = e.target.closest?.("path[data-span]")?.dataset.span;
+  if (!span) return;
+  if (e.type === "keydown") { if (e.key !== "Enter" && e.key !== " ") return; e.preventDefault(); }
+  playPassage(...span.split(",").map(Number));
+};
+$("links").addEventListener("click", bandPlay);
+$("links").addEventListener("keydown", bandPlay);
 
 let resizeTimer;
 window.addEventListener("resize", () => {
