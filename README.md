@@ -10,6 +10,8 @@ no audio leaves the browser.
 
 **Live:** https://jeffasante.github.io/motif-web/
 
+![Motif comparing two tracks: drop a query and a reference, compare, and play the matched passage in each](docs/demo.gif)
+
 ## Pipeline
 
 ```
