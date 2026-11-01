@@ -1,9 +1,13 @@
 // Small canvas charts for the evidence panel. Each function redraws the whole canvas.
 const PAD = { l: 46, r: 12, t: 36, b: 30 };
-const C = { grid: "rgba(255,255,255,.07)", axis: "#8a8a8a", text: "#b3b3b3", limit: "#f87171" };
+const DARK = { grid: "rgba(255,255,255,.07)", axis: "#8a8a8a", text: "#b3b3b3", limit: "#f87171", highlight: "#fbbf24" };
+const LIGHT = { grid: "rgba(0,0,0,.08)", axis: "#6b7280", text: "#4b5563", limit: "#dc2626", highlight: "#d97706" };
+const light = matchMedia("(prefers-color-scheme: light)");
+let C = light.matches ? LIGHT : DARK;
 const FONT = "11px system-ui, sans-serif";
 
 export function setup(canvas, height) {
+  C = light.matches ? LIGHT : DARK;
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || 600;
   canvas.width = Math.round(w * dpr);
@@ -162,7 +166,7 @@ export function scatter(canvas, { xs, ys, xMax, yMax, color, highlight, xLabel, 
   ctx.fillStyle = color;
   for (let i = 0; i < xs.length; i++) {
     ctx.globalAlpha = highlight && highlight(xs[i], ys[i]) ? 1 : 0.35;
-    ctx.fillStyle = highlight && highlight(xs[i], ys[i]) ? "#fbbf24" : color;
+    ctx.fillStyle = highlight && highlight(xs[i], ys[i]) ? C.highlight : color;
     ctx.fillRect(X(xs[i]) - 1, Y(ys[i]) - 1, 2.5, 2.5);
   }
   ctx.globalAlpha = 1;

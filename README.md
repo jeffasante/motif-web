@@ -4,7 +4,8 @@ Compare two audio files in your browser. Motif tells you whether they share audi
 (a sample, a re-release, the same recording) or are musically similar (a cover:
 same melody and chords, possibly in another key or tempo).
 
-Everything runs in the page. Your files are not uploaded.
+Everything runs in the page. Your files are not uploaded. The page follows your
+system's light or dark setting.
 
 **Use it:** https://jeffasante.github.io/motif-web/
 
@@ -14,7 +15,8 @@ Choose a query file and a reference file, then press **Compare**. You get:
   answer: a shared sample, a musical resemblance only (not a sample), or nothing found;
 - linked timelines, each with a waveform, a spectrogram and a chroma lane; matched
   passages are highlighted and connected across the two tracks;
-- **Matched passages**: play a passage in both tracks together or one after the other,
+- **Matched passages**: a zoomed waveform of where each passage sits in both tracks
+  (click it to play from there); play a passage in both tracks together or one after the other,
   trim or split it, and save either side as a WAV clip (cut from the full-quality
   decode, all channels kept, 16-bit at the browser's audio rate);
 - **Why this result**: graphs of the engine's own evidence against its thresholds,
